@@ -1,4 +1,6 @@
 
+using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -24,10 +26,17 @@ namespace VeganimusStudios
         [SerializeField] private float _maxJumpHeight = 1.0f;
         [SerializeField]private float _maxJumpTime = 0.5f;
         private bool _isJumping = false;
+        [SerializeField] int _jumpCount = 0;
+        private float _jumpTimer = 0.5f;
+        private WaitForSeconds _jumpDelay;
+        private Dictionary<int, float> _initialJumpVelocities = new Dictionary<int, float>();
+        private Dictionary<int, float> _jumpGravities = new Dictionary<int, float>();
+        private Coroutine _currentJumpResetRoutine = null;
         //Animator Parameters
         private readonly int _isWalkingHash = Animator.StringToHash("isWalking");
         private readonly int _isRunningHash = Animator.StringToHash("isRunning");
         private readonly int _isJumpingHash = Animator.StringToHash("isJumping");
+        private readonly int _jumpCountHash = Animator.StringToHash("jumpCount");
         private bool _isJumpAnimating = false;
         //Gravity Parameters
         private float _groundedGravity = -0.05f;
@@ -68,6 +77,21 @@ namespace VeganimusStudios
             float timeToApex = _maxJumpTime / 2;
             _gravity = (-2 * _maxJumpHeight) / Mathf.Pow(timeToApex, 2);
             _initialJumpVelocity = 2 * _maxJumpHeight / timeToApex;
+            float secondJumpGravity = (-2 * _maxJumpHeight + 2) / Mathf.Pow(timeToApex * 1.25f, 2);
+            float secondJumpVelocity = 2 * _maxJumpHeight + 2 / timeToApex * 1.25f;
+            float thirdJumpGravity = (-2 * _maxJumpHeight + 3) / Mathf.Pow(timeToApex * 1.5f, 2);
+            float thirdJumpVelocity = 2 * _maxJumpHeight + 3 / timeToApex * 1.5f;
+            
+            _initialJumpVelocities.Add(1,_initialJumpVelocity);
+            _initialJumpVelocities.Add(2,secondJumpVelocity);
+            _initialJumpVelocities.Add(3,thirdJumpVelocity);
+            
+            _jumpGravities.Add(0,_gravity);
+            _jumpGravities.Add(1,_gravity);
+            _jumpGravities.Add(2, secondJumpGravity);
+            _jumpGravities.Add(3, thirdJumpGravity);
+
+            _jumpDelay = new WaitForSeconds(_jumpTimer);
 
         }
         private void OnMovementInput(InputAction.CallbackContext context)
@@ -127,6 +151,12 @@ namespace VeganimusStudios
                 {
                     _animator.SetBool(_isJumpingHash, false);
                     _isJumpAnimating = false;
+                    _currentJumpResetRoutine = StartCoroutine(JumpResetRoutine());
+                    if (_jumpCount == 3)
+                    {
+                        _jumpCount = 0;
+                        _animator.SetInteger(_jumpCountHash, _jumpCount);
+                    }
                 }
                 _currentMovement.y = _groundedGravity;
                 _currentRunMovement.y = _groundedGravity;
@@ -134,7 +164,7 @@ namespace VeganimusStudios
             else if (isFalling)
             {
                 float previousYVelocity = _currentMovement.y;
-                float newYVelocity = _currentMovement.y + (_gravity * fallMultiplier * Time.deltaTime);
+                float newYVelocity = _currentMovement.y + (_jumpGravities[_jumpCount] * fallMultiplier * Time.deltaTime);
                 float nextYVelocity = Mathf.Max((previousYVelocity + newYVelocity) * .5f, -20.0f);
                 _currentMovement.y = nextYVelocity;
                 _currentRunMovement.y = nextYVelocity;
@@ -142,7 +172,7 @@ namespace VeganimusStudios
             else
             {
                 float previousYVelocity = _currentMovement.y;
-                float newYVelocity = _currentMovement.y + (_gravity * Time.deltaTime);
+                float newYVelocity = _currentMovement.y + (_jumpGravities[_jumpCount] * Time.deltaTime);
                 float nextYVelocity = (previousYVelocity + newYVelocity) * .5f;
                 _currentMovement.y = nextYVelocity;
                 _currentRunMovement.y = nextYVelocity;
@@ -153,16 +183,28 @@ namespace VeganimusStudios
         {
             if (!_isJumping && _isJumpPressed && _characterController.isGrounded)
             {
+                if (_jumpCount < 3 && _currentJumpResetRoutine != null)
+                {
+                    StopCoroutine(_currentJumpResetRoutine);
+                }
                 _animator.SetBool(_isJumpingHash, true);
                 _isJumping = true;
                 _isJumpAnimating = true;
-                _currentMovement.y = _initialJumpVelocity * 0.5f;
-                _currentRunMovement.y = _initialJumpVelocity * 0.5f;
+                _jumpCount++;
+                _animator.SetInteger(_jumpCountHash, _jumpCount);
+                _currentMovement.y = _initialJumpVelocities[_jumpCount] * 0.5f;
+                _currentRunMovement.y = _initialJumpVelocities[_jumpCount] * 0.5f;
             }
             else if (!_isJumpPressed && _isJumping && _characterController.isGrounded)
             {
                 _isJumping = false;
             }
+        }
+
+        private IEnumerator JumpResetRoutine()
+        {
+            yield return _jumpDelay;
+            _jumpCount = 0;
         }
     }
 }
